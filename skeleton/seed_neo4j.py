@@ -11,6 +11,12 @@ Design your graph schema (node labels, relationship types, properties)
 based on the data in these files, then implement the seed() function below.
 """
 
+"""
+TransitFlow — Neo4j Seeder
+Run once after starting Docker:
+    python skeleton/seed_neo4j.py
+"""
+
 import json
 import os
 import sys
@@ -31,34 +37,106 @@ def _load(filename):
 
 
 def seed():
+    print("Loading JSON mock data...")
     metro_stations = _load("metro_stations.json")
-    rail_stations  = _load("national_rail_stations.json")
+    rail_stations = _load("national_rail_stations.json")
+    rail_schedules = _load("national_rail_schedules.json")
 
     driver = GraphDatabase.driver(NEO4J_URI, auth=(NEO4J_USER, NEO4J_PASSWORD))
     with driver.session() as session:
-
+        # 1. 清空舊資料
         session.run("MATCH (n) DETACH DELETE n")
         print("  Cleared existing graph data")
 
-        # TODO: Design your node labels and create metro station nodes.
-        # Each station has: station_id, name, lines, and interchange info.
-        # See metro_stations.json for the full data structure.
+        # 2. 建立約束與索引 (對應 seed.cypher 的設計)
+        session.run("CREATE CONSTRAINT station_id_unique IF NOT EXISTS FOR (s:Station) REQUIRE s.station_id IS UNIQUE")
+        session.run("CREATE INDEX station_network_idx IF NOT EXISTS FOR (s:Station) ON (s.network)")
+        print("  Created constraints and indexes")
 
-        # TODO: Design your node labels and create national rail station nodes.
-        # See national_rail_stations.json for the full data structure.
+        # 3. 建立捷運車站 (Nodes)
+        for station in metro_stations:
+            session.run("""
+                CREATE (:Station {
+                    station_id: $id, 
+                    name: $name, 
+                    network: 'metro', 
+                    lines: $lines
+                })
+            """, id=station["station_id"], name=station["name"], lines=station["lines"])
 
-        # TODO: Design your relationship types and create metro links.
-        # Each station lists its adjacent_stations with line and travel_time_min.
-        # Consider what properties to store on the relationship.
+        # 4. 建立國鐵車站 (Nodes)
+        for station in rail_stations:
+            session.run("""
+                CREATE (:Station {
+                    station_id: $id, 
+                    name: $name, 
+                    network: 'rail', 
+                    lines: $lines
+                })
+            """, id=station["station_id"], name=station["name"], lines=station["lines"])
+        print("  Created all Station nodes")
 
-        # TODO: Design your relationship types and create national rail links.
+        # 5. 建立捷運連線 (Edges - 捷運每站費率固定為 0.30)
+        for station in metro_stations:
+            for adj in station["adjacent_stations"]:
+                session.run("""
+                    MATCH (a:Station {station_id: $id}), (b:Station {station_id: $adj_id})
+                    MERGE (a)-[r:CONNECTS_TO {line: $line, service_type: 'normal'}]->(b)
+                    SET r.travel_time_min = $time, 
+                        r.fare_standard = 0.30
+                """, id=station["station_id"], adj_id=adj["station_id"], 
+                     line=adj["line"], time=adj["travel_time_min"])
 
-        # TODO: Create interchange relationships between metro and rail stations.
-        # Interchange info is in the is_interchange_national_rail field
-        # of metro_stations.json.
+        # 6. 建立國鐵普通車連線 (Edges - 依據相鄰車站列表，每站標準艙 1.50, 頭等艙 2.50)
+        for station in rail_stations:
+            for adj in station["adjacent_stations"]:
+                session.run("""
+                    MATCH (a:Station {station_id: $id}), (b:Station {station_id: $adj_id})
+                    MERGE (a)-[r:CONNECTS_TO {line: $line, service_type: 'normal'}]->(b)
+                    SET r.travel_time_min = $time, 
+                        r.fare_standard = 1.50, 
+                        r.fare_first = 2.50
+                """, id=station["station_id"], adj_id=adj["station_id"], 
+                     line=adj["line"], time=adj["travel_time_min"])
+
+        # 7. 建立國鐵快車連線 (Edges - 依據 schedules.json 裡面的 express 跳站資訊)
+        for sch in rail_schedules:
+            if sch["service_type"] == "express":
+                stops = sch["stops_in_order"]
+                times = sch["travel_time_from_origin_min"]
+                fare_std = sch["fare_classes"]["standard"]["per_stop_rate_usd"]
+                fare_1st = sch["fare_classes"]["first"]["per_stop_rate_usd"]
+                
+                # 遍歷快車停靠站，把相鄰的停靠站直接連起來
+                for i in range(len(stops) - 1):
+                    origin_id = stops[i]
+                    dest_id = stops[i+1]
+                    travel_time = times[dest_id] - times[origin_id]
+                    
+                    session.run("""
+                        MATCH (a:Station {station_id: $o_id}), (b:Station {station_id: $d_id})
+                        MERGE (a)-[r:CONNECTS_TO {line: $line, service_type: 'express'}]->(b)
+                        SET r.travel_time_min = $time, 
+                            r.fare_standard = $f_std, 
+                            r.fare_first = $f_1st
+                    """, o_id=origin_id, d_id=dest_id, line=sch["line"], 
+                         time=travel_time, f_std=fare_std, f_1st=fare_1st)
+
+        # 8. 建立跨網絡轉乘關連 (Edges - 捷運與國鐵的雙向轉乘通道)
+        for station in metro_stations:
+            if station.get("is_interchange_national_rail"):
+                nr_id = station["interchange_national_rail_station_id"]
+                ms_id = station["station_id"]
+                session.run("""
+                    MATCH (m:Station {station_id: $ms_id}), (r:Station {station_id: $nr_id})
+                    MERGE (m)-[:INTERCHANGE_TO {travel_time_min: 0, fare: 0.0}]->(r)
+                    MERGE (r)-[:INTERCHANGE_TO {travel_time_min: 0, fare: 0.0}]->(m)
+                """, ms_id=ms_id, nr_id=nr_id)
+                
+        print("  Created all CONNECTS_TO and INTERCHANGE_TO relationships")
 
     driver.close()
-    print("\nNeo4j graph seeded successfully.")
+    print("\n✅ Neo4j graph seeded successfully.")
     print("   Open http://localhost:7475 to explore the graph.")
 
 
