@@ -2,19 +2,6 @@
 TransitFlow — Neo4j Seeder
 Run once after starting Docker:
     python skeleton/seed_neo4j.py
-
-Loads station and network data from train-mock-data/:
-  - metro_stations.json         — city metro stations and adjacencies
-  - national_rail_stations.json — national rail stations and adjacencies
-
-Design your graph schema (node labels, relationship types, properties)
-based on the data in these files, then implement the seed() function below.
-"""
-
-"""
-TransitFlow — Neo4j Seeder
-Run once after starting Docker:
-    python skeleton/seed_neo4j.py
 """
 
 import json
@@ -48,9 +35,10 @@ def seed():
         session.run("MATCH (n) DETACH DELETE n")
         print("  Cleared existing graph data")
 
-        # 2. 建立約束與索引 (對應 seed.cypher 的設計)
+        # 2. 建立約束與索引 (與 seed.cypher 完美對齊)
         session.run("CREATE CONSTRAINT station_id_unique IF NOT EXISTS FOR (s:Station) REQUIRE s.station_id IS UNIQUE")
         session.run("CREATE INDEX station_network_idx IF NOT EXISTS FOR (s:Station) ON (s.network)")
+        session.run("CREATE INDEX station_name_idx IF NOT EXISTS FOR (s:Station) ON (s.name)")
         print("  Created constraints and indexes")
 
         # 3. 建立捷運車站 (Nodes)
@@ -87,7 +75,7 @@ def seed():
                 """, id=station["station_id"], adj_id=adj["station_id"], 
                      line=adj["line"], time=adj["travel_time_min"])
 
-        # 6. 建立國鐵普通車連線 (Edges - 依據相鄰車站列表，每站標準艙 1.50, 頭等艙 2.50)
+        # 6. 建立國鐵普通車連線 (Edges - 每站標準艙 1.50, 頭等艙 2.50)
         for station in rail_stations:
             for adj in station["adjacent_stations"]:
                 session.run("""
@@ -99,7 +87,7 @@ def seed():
                 """, id=station["station_id"], adj_id=adj["station_id"], 
                      line=adj["line"], time=adj["travel_time_min"])
 
-        # 7. 建立國鐵快車連線 (Edges - 依據 schedules.json 裡面的 express 跳站資訊)
+        # 7. 建立國鐵快車連線 (Edges)
         for sch in rail_schedules:
             if sch["service_type"] == "express":
                 stops = sch["stops_in_order"]
@@ -107,7 +95,6 @@ def seed():
                 fare_std = sch["fare_classes"]["standard"]["per_stop_rate_usd"]
                 fare_1st = sch["fare_classes"]["first"]["per_stop_rate_usd"]
                 
-                # 遍歷快車停靠站，把相鄰的停靠站直接連起來
                 for i in range(len(stops) - 1):
                     origin_id = stops[i]
                     dest_id = stops[i+1]
@@ -122,7 +109,7 @@ def seed():
                     """, o_id=origin_id, d_id=dest_id, line=sch["line"], 
                          time=travel_time, f_std=fare_std, f_1st=fare_1st)
 
-        # 8. 建立跨網絡轉乘關連 (Edges - 捷運與國鐵的雙向轉乘通道)
+        # 8. 建立跨網絡轉乘關連 (Edges)
         for station in metro_stations:
             if station.get("is_interchange_national_rail"):
                 nr_id = station["interchange_national_rail_station_id"]
@@ -137,7 +124,6 @@ def seed():
 
     driver.close()
     print("\n✅ Neo4j graph seeded successfully.")
-    print("   Open http://localhost:7475 to explore the graph.")
 
 
 if __name__ == "__main__":
