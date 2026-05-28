@@ -13,6 +13,7 @@ Passwords and secret answers follow the same hash format used in seed_postgres.p
 
 from __future__ import annotations
 
+import email
 import hashlib
 import random
 import secrets
@@ -27,7 +28,7 @@ from skeleton.config import PG_DSN, VECTOR_TOP_K, VECTOR_SIMILARITY_THRESHOLD
 
 
 # ── connection / id / security helpers ───────────────────────────────────────
-
+cur.execute("SELECT * FROM users WHERE email = %s", (email,))
 def _connect():
     """Return a new psycopg2 connection with autocommit enabled."""
     conn = psycopg2.connect(PG_DSN)
