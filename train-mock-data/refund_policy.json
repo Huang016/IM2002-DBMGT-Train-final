@@ -170,5 +170,22 @@
       }
     ],
     "exclusions": "Delays caused by third-party events (extreme weather, security incidents, government directives, or passenger-caused incidents) are not eligible for compensation."
+  },
+  {
+    "policy_id": "RF006",
+    "label": "Severe Weather and Natural Disasters – All Networks",
+    "applies_to": {
+      "network_type": "all",
+      "ticket_types": ["single", "return", "day_pass", "monthly_pass"]
+    },
+    "compensation_rules": [
+      {
+        "rule_id": "RF006_R1",
+        "condition": "Services suspended or severely delayed (120+ minutes) due to extreme weather warnings (e.g., typhoon, earthquake)",
+        "compensation": "100% full refund to the original payment method without any administration fee, regardless of ticket type or cancellation window.",
+        "how_to_claim": "Automatic refund processing for advance national rail bookings. Metro pass holders must apply via the app within 7 days of the disruption."
+      }
+    ],
+    "notes": "This policy is triggered exclusively by official safety warnings issued by the national meteorological agency."
   }
 ]

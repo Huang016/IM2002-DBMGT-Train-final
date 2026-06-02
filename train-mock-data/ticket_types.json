@@ -73,5 +73,26 @@
       "refund_rule": "RF004",
       "notes": "A day pass offers better value than individual single tickets for passengers making 3 or more metro trips in a day. Tap in and out normally at each station."
     }
+  },
+  {
+    "ticket_type": "monthly_pass",
+    "display_name": "Monthly Commuter Pass",
+    "available_on": ["metro"],
+    "description": "Unlimited travel on all metro lines for 30 consecutive days from the date of activation. Ideal for regular commuters.",
+    "metro": {
+      "pricing_model": "flat_rate",
+      "price_usd": 75.00,
+      "fare_class": null,
+      "seat_assignment": false,
+      "unlimited_journeys": true,
+      "valid_lines": ["M1", "M2", "M3", "M4"],
+      "validity": "Valid for 30 days. Expires at 23:59 on the 30th day after first tap-in.",
+      "advance_purchase": true,
+      "changes_allowed": false,
+      "transferable": false,
+      "refundable": true,
+      "refund_rule": "Pro-rated refund available only before the 7th day of use, subject to a $5.00 admin fee.",
+      "notes": "Pass will automatically activate upon the first tap-in at any metro station."
+    }
   }
 ]

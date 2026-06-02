@@ -1,6 +1,15 @@
 {
   "version": "1.0",
   "last_updated": "2024-01-01",
+  "general": {
+    "lost_property": {
+      "retention_period": "Items found on trains or at stations will be securely stored at the Central Station Lost & Found office for exactly 30 days.",
+      "perishables": "Perishable items (e.g., food, beverages) will be disposed of at the end of the operating day for hygiene reasons.",
+      "claiming_items": "Passengers must provide a valid photo ID and a detailed description of the item to claim it.",
+      "handling_fee_usd": 2.50,
+      "unclaimed_items": "Items not claimed within 30 days will be donated to local charities or recycled."
+    }
+  },
   "metro": {
     "bicycles": {
       "foldable_bicycles": {

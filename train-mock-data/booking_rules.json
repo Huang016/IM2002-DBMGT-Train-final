@@ -50,6 +50,11 @@
       "conditions": "Group discount applies to standard class single and return tickets only. All group members must travel on the same service. Discount is applied at the time of booking when 10 or more tickets are purchased in a single transaction.",
       "not_applicable": "Group discount does not apply to first class tickets, express services, or day passes."
     },
+    "accessibility_booking": {
+      "wheelchair_spaces": "Dedicated wheelchair spaces are available in standard class coaches. These must be booked at least 24 hours in advance via the app or customer service to ensure ramp assistance is scheduled.",
+      "companion_discount": "One travelling companion of a registered wheelchair user is eligible for a 100% discount on their standard class ticket for the same journey.",
+      "mobility_scooters": "Large mobility scooters are not permitted on trains. Only foldable scooters that fit within standard luggage dimensions (70 × 50 × 30 cm) may be brought on board."
+    },
     "payment": {
       "accepted_methods": ["credit_card", "debit_card", "ewallet"],
       "payment_timing": "Full payment is required at the time of booking.",
