@@ -1,5 +1,5 @@
 """
-TransitFlow — Neo4j Seeder
+TransitFlow — Neo4j Seeder (基於真實地圖地理分區修正版)
 Run once after starting Docker:
     python skeleton/seed_neo4j.py
 """
@@ -16,6 +16,21 @@ from skeleton.config import NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD
 _DATA_DIR = os.path.normpath(
     os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "train-mock-data")
 )
+
+# 🗺️ 依據真實地圖「核心環狀線」嚴格定義的精準分區對照表
+STATION_ZONES = {
+    # Zone 1: 核心大環線與其內部 (The Inner Ring)
+    "MS01": 1, "MS02": 1, "MS03": 1, "MS04": 1, "MS07": 1, "MS08": 1, "MS12": 1, "MS18": 1,
+    "NR01": 1, "NR02": 1, "NR03": 1,
+    
+    # Zone 2: 環線向外輻射的近郊站 (First outward branches)
+    "MS05": 2, "MS06": 2, "MS09": 2, "MS10": 2, "MS14": 2, "MS17": 2,
+    "NR04": 2, "NR06": 2,
+    
+    # Zone 3: 地圖邊界的遠郊末端站群 (Outer extremities)
+    "MS11": 3, "MS13": 3, "MS15": 3, "MS16": 3, "MS19": 3, "MS20": 3,
+    "NR05": 3, "NR07": 3, "NR08": 3, "NR09": 3, "NR10": 3
+}
 
 
 def _load(filename):
@@ -41,30 +56,38 @@ def seed():
         session.run("CREATE INDEX station_name_idx IF NOT EXISTS FOR (s:Station) ON (s.name)")
         print("  Created constraints and indexes")
 
-        # 3. 建立捷運車站 (Nodes) - 已加入 closed 屬性
+        # 3. 建立捷運車站 (Nodes)
         for station in metro_stations:
+            sid = station["station_id"]
+            zone = STATION_ZONES.get(sid, 1)
+
             session.run("""
                 CREATE (:Station {
                     station_id: $id, 
                     name: $name, 
                     network: 'metro', 
                     lines: $lines,
-                    closed: false
+                    closed: false,
+                    zone: $zone
                 })
-            """, id=station["station_id"], name=station["name"], lines=station["lines"])
+            """, id=sid, name=station["name"], lines=station["lines"], zone=zone)
 
-        # 4. 建立國鐵車站 (Nodes) - 已加入 closed 屬性
+        # 4. 建立國鐵車站 (Nodes)
         for station in rail_stations:
+            sid = station["station_id"]
+            zone = STATION_ZONES.get(sid, 1)
+
             session.run("""
                 CREATE (:Station {
                     station_id: $id, 
                     name: $name, 
                     network: 'rail', 
                     lines: $lines,
-                    closed: false
+                    closed: false,
+                    zone: $zone
                 })
-            """, id=station["station_id"], name=station["name"], lines=station["lines"])
-        print("  Created all Station nodes with closed status")
+            """, id=sid, name=station["name"], lines=station["lines"], zone=zone)
+        print("  Created all Station nodes with mathematically precise geographic Zones!")
 
         # 5. 建立捷運連線 (Edges)
         for station in metro_stations:
@@ -133,7 +156,7 @@ def seed():
         print("  Created all CONNECTS_TO and INTERCHANGE_TO relationships")
 
     driver.close()
-    print("\n✅ Neo4j graph seeded successfully.")
+    print("\n✅ Neo4j graph seeded successfully with Real Map Zones.")
 
 
 if __name__ == "__main__":

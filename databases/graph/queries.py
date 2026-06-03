@@ -19,7 +19,8 @@ def _parse_path(path_record):
             "station_id": n.get("station_id"),
             "name": n.get("name"),
             "network": n.get("network"),
-            "lines": n.get("lines", [])
+            "lines": n.get("lines", []),
+            "zone": n.get("zone", 1)  # 關鍵：讓解析器回傳車站所屬的 Zone
         }
         for n in nodes
     ]
@@ -38,7 +39,7 @@ def _parse_path(path_record):
     return stations, legs
 
 
-# ── FASTEST ROUTE (防空值安全升級版) ─────────────────────────────────────────
+# ── FASTEST ROUTE (安全避障版) ───────────────────────────────────────────────
 
 def query_shortest_route(origin_id: str, destination_id: str, network: str = "auto") -> dict:
     if origin_id == destination_id:
@@ -51,7 +52,6 @@ def query_shortest_route(origin_id: str, destination_id: str, network: str = "au
             "legs": []
         }
     
-    # 使用 coalesce(n.closed, false) 確保防禦 Null 值崩潰
     query = """
     MATCH (start:Station {station_id: $origin_id})
     MATCH (end:Station {station_id: $destination_id})
@@ -80,10 +80,10 @@ def query_shortest_route(origin_id: str, destination_id: str, network: str = "au
             }
 
 
-# ── CHEAPEST ROUTE (防空值安全升級版) ─────────────────────────────────────────
+
+# ── CHEAPEST ROUTE (Idea 3 升級：融合安全避障 + 區分國鐵/捷運的智慧分區計價) ─────────
 
 def query_cheapest_route(origin_id: str, destination_id: str, network: str = "auto", fare_class: str = "standard") -> dict:
-    weight_prop = "fare_first" if fare_class == "first" else "fare_standard"
     if origin_id == destination_id:
         return {
             "found": True,
@@ -92,19 +92,33 @@ def query_cheapest_route(origin_id: str, destination_id: str, network: str = "au
             "legs": []
         }
     
-    query = f"""
+    # 根據艙等決定票價倍率
+    multiplier = 1.5 if fare_class == "first" else 1.0
+    
+    # Cypher 邏輯：找出最高與最低 Zone，並動態偵測是否搭乘國鐵 (附加費 $2.0)
+    query = """
     MATCH (start:Station {station_id: $origin_id})
     MATCH (end:Station {station_id: $destination_id})
     WHERE coalesce(start.closed, false) = false AND coalesce(end.closed, false) = false
     MATCH path = (start)-[:CONNECTS_TO|INTERCHANGE_TO*1..15]->(end)
     WHERE NONE(n IN nodes(path) WHERE coalesce(n.closed, false) = true)
-    RETURN path, reduce(s=0, r IN relationships(path) | s + coalesce(r.{weight_prop}, 0)) AS total_fare_usd
+    
+    WITH path, nodes(path) AS ns
+    UNWIND ns AS n
+    WITH path, 
+         min(coalesce(n.zone, 1)) AS min_z, 
+         max(coalesce(n.zone, 1)) AS max_z,
+         CASE WHEN ANY(node IN nodes(path) WHERE node.network = 'rail') THEN 2.0 ELSE 0.0 END AS rail_surcharge
+    
+    // 計費公式：(捷運底資 1.0 + 國鐵附加費 + 跨區幅度 * 0.5) * 艙等倍率
+    WITH path, (1.0 + rail_surcharge + (max_z - min_z) * 0.5) * $multiplier AS zone_fare
+    RETURN path, zone_fare AS total_fare_usd
     ORDER BY total_fare_usd ASC
     LIMIT 1
     """
     with _driver() as driver:
         with driver.session() as session:
-            result = session.run(query, origin_id=origin_id, destination_id=destination_id)
+            result = session.run(query, origin_id=origin_id, destination_id=destination_id, multiplier=multiplier)
             record = result.single()
             if not record:
                 return {"found": False}
@@ -112,7 +126,7 @@ def query_cheapest_route(origin_id: str, destination_id: str, network: str = "au
             stations, legs = _parse_path(record["path"])
             return {
                 "found": True,
-                "total_fare_usd": record["total_fare_usd"],
+                "total_fare_usd": round(record["total_fare_usd"], 2),
                 "stations": stations,
                 "legs": legs
             }
