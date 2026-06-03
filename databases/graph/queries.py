@@ -12,7 +12,7 @@ def _driver():
 def _parse_path(path_record):
     """Helper to parse a Neo4j path object into a usable dict."""
     nodes = path_record.nodes
-    rels = path_record.relationships
+    relationships = path_record.relationships
     
     stations = [
         {
@@ -25,7 +25,7 @@ def _parse_path(path_record):
     ]
     legs = []
     
-    for r in rels:
+    for r in relationships:
         legs.append({
             "type": r.type,
             "line": r.get("line"),
@@ -38,7 +38,7 @@ def _parse_path(path_record):
     return stations, legs
 
 
-# ── FASTEST ROUTE (Dijkstra by travel_time_min) ───────────────────────────────
+# ── FASTEST ROUTE (防空值安全升級版) ─────────────────────────────────────────
 
 def query_shortest_route(origin_id: str, destination_id: str, network: str = "auto") -> dict:
     if origin_id == destination_id:
@@ -50,11 +50,17 @@ def query_shortest_route(origin_id: str, destination_id: str, network: str = "au
             "path": [{"station_id": origin_id}],
             "legs": []
         }
+    
+    # 使用 coalesce(n.closed, false) 確保防禦 Null 值崩潰
     query = """
     MATCH (start:Station {station_id: $origin_id})
     MATCH (end:Station {station_id: $destination_id})
-    CALL apoc.algo.dijkstra(start, end, 'CONNECTS_TO|INTERCHANGE_TO', 'travel_time_min', 0.0) YIELD path, weight
-    RETURN path, weight AS total_time_min
+    WHERE coalesce(start.closed, false) = false AND coalesce(end.closed, false) = false
+    MATCH path = (start)-[:CONNECTS_TO|INTERCHANGE_TO*1..15]->(end)
+    WHERE NONE(n IN nodes(path) WHERE coalesce(n.closed, false) = true)
+    RETURN path, reduce(s=0, r IN relationships(path) | s + coalesce(r.travel_time_min, 0)) AS total_time_min
+    ORDER BY total_time_min ASC
+    LIMIT 1
     """
     with _driver() as driver:
         with driver.session() as session:
@@ -74,7 +80,7 @@ def query_shortest_route(origin_id: str, destination_id: str, network: str = "au
             }
 
 
-# ── CHEAPEST ROUTE (Dijkstra by fare) ────────────────────────────────────────
+# ── CHEAPEST ROUTE (防空值安全升級版) ─────────────────────────────────────────
 
 def query_cheapest_route(origin_id: str, destination_id: str, network: str = "auto", fare_class: str = "standard") -> dict:
     weight_prop = "fare_first" if fare_class == "first" else "fare_standard"
@@ -85,15 +91,20 @@ def query_cheapest_route(origin_id: str, destination_id: str, network: str = "au
             "stations": [{"station_id": origin_id}],
             "legs": []
         }
-    query = """
+    
+    query = f"""
     MATCH (start:Station {station_id: $origin_id})
     MATCH (end:Station {station_id: $destination_id})
-    CALL apoc.algo.dijkstra(start, end, 'CONNECTS_TO|INTERCHANGE_TO', $weight_prop, 0.0) YIELD path, weight
-    RETURN path, weight AS total_fare_usd
+    WHERE coalesce(start.closed, false) = false AND coalesce(end.closed, false) = false
+    MATCH path = (start)-[:CONNECTS_TO|INTERCHANGE_TO*1..15]->(end)
+    WHERE NONE(n IN nodes(path) WHERE coalesce(n.closed, false) = true)
+    RETURN path, reduce(s=0, r IN relationships(path) | s + coalesce(r.{weight_prop}, 0)) AS total_fare_usd
+    ORDER BY total_fare_usd ASC
+    LIMIT 1
     """
     with _driver() as driver:
         with driver.session() as session:
-            result = session.run(query, origin_id=origin_id, destination_id=destination_id, weight_prop=weight_prop)
+            result = session.run(query, origin_id=origin_id, destination_id=destination_id)
             record = result.single()
             if not record:
                 return {"found": False}
@@ -107,7 +118,7 @@ def query_cheapest_route(origin_id: str, destination_id: str, network: str = "au
             }
 
 
-# ── ALTERNATIVE ROUTES (avoiding a station) ───────────────────────────────────
+# ── ALTERNATIVE ROUTES ───────────────────────────────────────────────────────
 
 def query_alternative_routes(origin_id: str, destination_id: str, avoid_station_id: str, network: str = "auto", max_routes: int = 3) -> list[dict]:
     query = """
@@ -115,6 +126,7 @@ def query_alternative_routes(origin_id: str, destination_id: str, avoid_station_
     MATCH (end:Station {station_id: $destination_id})
     MATCH path = (start)-[:CONNECTS_TO|INTERCHANGE_TO*1..8]->(end)
     WHERE NONE(n IN nodes(path) WHERE n.station_id = $avoid_station_id)
+      AND NONE(n IN nodes(path) WHERE coalesce(n.closed, false) = true)
     RETURN path
     ORDER BY reduce(s=0, r IN relationships(path) | s + coalesce(r.travel_time_min, 0)) ASC
     LIMIT $max_routes
@@ -135,14 +147,16 @@ def query_alternative_routes(origin_id: str, destination_id: str, avoid_station_
 # ── CROSS-NETWORK INTERCHANGE PATH ───────────────────────────────────────────
 
 def query_interchange_path(origin_id: str, destination_id: str) -> dict:
-    # 核心修正：加入 WHERE start <> end 預防起終點相同導致 shortestPath 報錯
     query = """
     MATCH (start:Station {station_id: $origin_id})
     MATCH (end:Station {station_id: $destination_id})
-    WHERE start <> end
-    MATCH path = shortestPath((start)-[:CONNECTS_TO|INTERCHANGE_TO*]->(end))
+    WHERE start <> end AND coalesce(start.closed, false) = false AND coalesce(end.closed, false) = false
+    MATCH path = (start)-[:CONNECTS_TO|INTERCHANGE_TO*1..15]->(end)
     WHERE any(r IN relationships(path) WHERE type(r) = 'INTERCHANGE_TO')
+      AND NONE(n IN nodes(path) WHERE coalesce(n.closed, false) = true)
     RETURN path, reduce(s=0, r IN relationships(path) | s + coalesce(r.travel_time_min, 0)) AS total_time_min
+    ORDER BY length(path) ASC
+    LIMIT 1
     """
     with _driver() as driver:
         with driver.session() as session:
@@ -169,15 +183,15 @@ def query_interchange_path(origin_id: str, destination_id: str) -> dict:
 # ── DELAY RIPPLE ANALYSIS ─────────────────────────────────────────────────────
 
 def query_delay_ripple(delayed_station_id: str, hops: int = 2) -> list[dict]:
-    # 核心修正：加入 WHERE start <> other 預防搜尋到自身站體導致最短路徑算法崩潰
     query = """
     MATCH (start:Station {station_id: $delayed_station_id})
     MATCH (other:Station)
-    WHERE start <> other
-    MATCH p = shortestPath((start)-[:CONNECTS_TO|INTERCHANGE_TO*1..10]->(other))
-    WHERE length(p) > 0 AND length(p) <= $hops
+    WHERE start <> other AND coalesce(other.closed, false) = false
+    MATCH p = (start)-[:CONNECTS_TO|INTERCHANGE_TO*1..10]->(other)
+    WHERE NONE(n IN nodes(p) WHERE coalesce(n.closed, false) = true AND n.station_id <> $delayed_station_id)
     RETURN DISTINCT other.station_id AS station_id, other.name AS name, length(p) AS hops_away, other.lines AS lines_affected
     ORDER BY hops_away ASC
+    LIMIT 20
     """
     with _driver() as driver:
         with driver.session() as session:
@@ -190,6 +204,7 @@ def query_delay_ripple(delayed_station_id: str, hops: int = 2) -> list[dict]:
 def query_station_connections(station_id: str) -> list[dict]:
     query = """
     MATCH (start:Station {station_id: $station_id})-[r:CONNECTS_TO|INTERCHANGE_TO]->(other:Station)
+    WHERE coalesce(other.closed, false) = false
     RETURN other.station_id AS station_id, 
            other.name AS name, 
            type(r) AS rel_type, 

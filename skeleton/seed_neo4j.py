@@ -35,36 +35,38 @@ def seed():
         session.run("MATCH (n) DETACH DELETE n")
         print("  Cleared existing graph data")
 
-        # 2. 建立約束與索引 (與 seed.cypher 完美對齊)
+        # 2. 建立約束與索引
         session.run("CREATE CONSTRAINT station_id_unique IF NOT EXISTS FOR (s:Station) REQUIRE s.station_id IS UNIQUE")
         session.run("CREATE INDEX station_network_idx IF NOT EXISTS FOR (s:Station) ON (s.network)")
         session.run("CREATE INDEX station_name_idx IF NOT EXISTS FOR (s:Station) ON (s.name)")
         print("  Created constraints and indexes")
 
-        # 3. 建立捷運車站 (Nodes)
+        # 3. 建立捷運車站 (Nodes) - 已加入 closed 屬性
         for station in metro_stations:
             session.run("""
                 CREATE (:Station {
                     station_id: $id, 
                     name: $name, 
                     network: 'metro', 
-                    lines: $lines
+                    lines: $lines,
+                    closed: false
                 })
             """, id=station["station_id"], name=station["name"], lines=station["lines"])
 
-        # 4. 建立國鐵車站 (Nodes)
+        # 4. 建立國鐵車站 (Nodes) - 已加入 closed 屬性
         for station in rail_stations:
             session.run("""
                 CREATE (:Station {
                     station_id: $id, 
                     name: $name, 
                     network: 'rail', 
-                    lines: $lines
+                    lines: $lines,
+                    closed: false
                 })
             """, id=station["station_id"], name=station["name"], lines=station["lines"])
-        print("  Created all Station nodes")
+        print("  Created all Station nodes with closed status")
 
-        # 5. 建立捷運連線 (Edges - 捷運每站費率固定為 0.30)
+        # 5. 建立捷運連線 (Edges)
         for station in metro_stations:
             for adj in station["adjacent_stations"]:
                 session.run("""
@@ -75,7 +77,7 @@ def seed():
                 """, id=station["station_id"], adj_id=adj["station_id"], 
                      line=adj["line"], time=adj["travel_time_min"])
 
-        # 6. 建立國鐵普通車連線 (Edges - 每站標準艙 1.50, 頭等艙 2.50)
+        # 6. 建立國鐵普通車連線 (Edges)
         for station in rail_stations:
             for adj in station["adjacent_stations"]:
                 session.run("""
