@@ -1,3 +1,4 @@
+mermaid'
 erDiagram
     %% ==========================================
     %% 1. Users and AI Policy Retrieval Vector
@@ -247,3 +248,4 @@ erDiagram
     %% Feedback
     national_rail_bookings ||--o{ national_rail_feedback : "has_feedback"
     metro_trips ||--o{ metro_feedback : "has_feedback"
+    '
