@@ -200,6 +200,7 @@ def travel_time_for_stop(schedule: dict[str, Any], station_code: str) -> int:
 
 # ── seeders ──────────────────────────────────────────────────────────────────
 
+
 def seed_users(cur) -> dict[str, Any]:
     data = load("registered_users.json")
 
@@ -261,7 +262,7 @@ def seed_metro_stations(cur) -> dict[str, int]:
             item.get("is_interchange_metro", False),
             Json(item.get("interchange_metro_lines", [])),
             item.get("is_interchange_national_rail", False),
-            item.get("interchange_national_rail_station_id"),
+            None,
             Json(item.get("adjacent_stations", [])),
         )
         for item in data
@@ -294,7 +295,7 @@ def seed_national_rail_stations(cur) -> dict[str, int]:
             item.get("is_interchange_national_rail", False),
             Json(item.get("interchange_national_rail_lines", [])),
             item.get("is_interchange_metro", False),
-            item.get("interchange_metro_station_id"),
+            None,
             Json(item.get("adjacent_stations", [])),
         )
         for item in data
@@ -303,6 +304,52 @@ def seed_national_rail_stations(cur) -> dict[str, int]:
     count = insert_many(cur, "national_rail_stations", columns, rows)
     print(f"  national_rail_stations: {count}")
     return fetch_lookup(cur, "national_rail_stations", "station_code", "station_id")
+
+
+def update_station_interchanges(cur) -> None:
+    """Update cross-network interchange codes after both station tables exist."""
+    metro_data = load("metro_stations.json")
+    rail_data = load("national_rail_stations.json")
+
+    metro_updates = [
+        (
+            item.get("interchange_national_rail_station_id"),
+            item.get("station_id"),
+        )
+        for item in metro_data
+        if item.get("interchange_national_rail_station_id")
+    ]
+
+    rail_updates = [
+        (
+            item.get("interchange_metro_station_id"),
+            item.get("station_id"),
+        )
+        for item in rail_data
+        if item.get("interchange_metro_station_id")
+    ]
+
+    for rail_station_code, metro_station_code in metro_updates:
+        cur.execute(
+            """
+            UPDATE metro_stations
+            SET interchange_national_rail_station_code = %s
+            WHERE station_code = %s
+            """,
+            (rail_station_code, metro_station_code),
+        )
+
+    for metro_station_code, rail_station_code in rail_updates:
+        cur.execute(
+            """
+            UPDATE national_rail_stations
+            SET interchange_metro_station_code = %s
+            WHERE station_code = %s
+            """,
+            (metro_station_code, rail_station_code),
+        )
+
+    print(f"  station interchanges updated: {len(metro_updates) + len(rail_updates)}")
 
 
 def seed_metro_schedules(cur, metro_station_ids: dict[str, int]) -> dict[str, int]:
@@ -611,6 +658,7 @@ def seed_metro_monthly_passes(cur, user_ids: dict[str, Any]) -> dict[str, Any]:
     print(f"  metro_monthly_passes: {count}")
     return fetch_lookup(cur, "metro_monthly_passes", "pass_code", "pass_id")
 
+
 def seed_metro_monthly_pass_payments(
     cur,
     monthly_pass_ids: dict[str, Any],
@@ -664,7 +712,6 @@ def seed_metro_monthly_pass_payments(
     count = insert_many(cur, "metro_monthly_pass_payments", columns, rows)
     print(f"  metro_monthly_pass_payments: {count}")
     return count
-
 
 
 def seed_national_rail_bookings(
@@ -1050,6 +1097,7 @@ def print_summary(cur) -> None:
 
 # ── main ─────────────────────────────────────────────────────────────────────
 
+
 def main() -> None:
     print("Connecting to PostgreSQL...")
     conn = connect()
@@ -1063,6 +1111,7 @@ def main() -> None:
         user_ids = seed_users(cur)
         metro_station_ids = seed_metro_stations(cur)
         rail_station_ids = seed_national_rail_stations(cur)
+        update_station_interchanges(cur)
 
         # 2. Schedules and normalized schedule stops.
         metro_schedule_ids = seed_metro_schedules(cur, metro_station_ids)

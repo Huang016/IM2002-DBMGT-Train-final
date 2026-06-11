@@ -51,7 +51,7 @@ erDiagram
         BOOLEAN is_interchange_national_rail "NOT NULL DEFAULT FALSE"
         JSONB interchange_national_rail_lines "NOT NULL DEFAULT []"
         BOOLEAN is_interchange_metro "NOT NULL DEFAULT FALSE"
-        VARCHAR interchange_metro_station_code
+        VARCHAR interchange_metro_station_code FK "references metro_stations.station_code"
         JSONB adjacent_stations "NOT NULL DEFAULT []"
     }
 
@@ -63,7 +63,7 @@ erDiagram
         BOOLEAN is_interchange_metro "NOT NULL DEFAULT FALSE"
         JSONB interchange_metro_lines "NOT NULL DEFAULT []"
         BOOLEAN is_interchange_national_rail "NOT NULL DEFAULT FALSE"
-        VARCHAR interchange_national_rail_station_code
+        VARCHAR interchange_national_rail_station_code  FK "references national_rail_stations.station_code"
         JSONB adjacent_stations "NOT NULL DEFAULT []"
     }
 
@@ -89,8 +89,8 @@ erDiagram
         VARCHAR direction "northbound / southbound / eastbound / westbound"
         INTEGER origin_station_id FK
         INTEGER destination_station_id FK
-        NUMERIC base_fare_usd "10,2 NOT NULL"
-        NUMERIC per_stop_rate_usd "10,2 NOT NULL"
+        NUMERIC base_fare_usd "NUMERIC(10,2) NOT NULL"
+        NUMERIC per_stop_rate_usd "NUMERIC(10,2) NOT NULL"
         TIME first_train_time "NOT NULL"
         TIME last_train_time "NOT NULL"
         INTEGER frequency_min "NOT NULL"
@@ -159,7 +159,7 @@ erDiagram
         VARCHAR coach "NOT NULL"
         INTEGER seat_pk FK
         INTEGER stops_travelled "NOT NULL"
-        NUMERIC amount_usd "10,2 NOT NULL"
+        NUMERIC amount_usd "NUMERIC(10,2) NOT NULL"
         VARCHAR status "confirmed / completed / cancelled"
         TIMESTAMPTZ booked_at "NOT NULL"
         TIMESTAMPTZ travelled_at
@@ -171,7 +171,7 @@ erDiagram
         UUID user_id FK
         DATE valid_from "NOT NULL"
         DATE valid_until "NOT NULL"
-        NUMERIC price_usd "10,2 NOT NULL"
+        NUMERIC price_usd "NUMERIC(10,2) NOT NULL"
         TIMESTAMPTZ purchased_at "NOT NULL DEFAULT NOW"
     }
 
@@ -187,7 +187,7 @@ erDiagram
         UUID day_pass_ref FK
         UUID monthly_pass_ref FK
         INTEGER stops_travelled
-        NUMERIC amount_usd "10,2 NOT NULL"
+        NUMERIC amount_usd "NUMERIC(10,2) NOT NULL"
         VARCHAR status "completed / cancelled"
         TIMESTAMPTZ purchased_at
         TIMESTAMPTZ travelled_at
@@ -201,7 +201,7 @@ erDiagram
         UUID payment_id PK
         VARCHAR payment_code UK "source JSON ID"
         UUID booking_id FK
-        NUMERIC amount_usd "10,2 NOT NULL"
+        NUMERIC amount_usd "NUMERIC(10,2) NOT NULL"
         VARCHAR method "credit_card / debit_card / ewallet"
         VARCHAR status "paid / refunded"
         TIMESTAMPTZ paid_at "NOT NULL"
@@ -211,7 +211,7 @@ erDiagram
         UUID payment_id PK
         VARCHAR payment_code UK "source JSON ID"
         UUID trip_id FK
-        NUMERIC amount_usd "10,2 NOT NULL"
+        NUMERIC amount_usd "NUMERIC(10,2) NOT NULL"
         VARCHAR method "credit_card / debit_card / ewallet"
         VARCHAR status "paid / refunded"
         TIMESTAMPTZ paid_at "NOT NULL"
@@ -221,14 +221,11 @@ erDiagram
         UUID payment_id PK
         VARCHAR payment_code UK "source JSON ID"
         UUID pass_id FK
-        NUMERIC amount_usd "10,2 NOT NULL"
+        NUMERIC amount_usd "NUMERIC(10,2) NOT NULL"
         VARCHAR method "credit_card / debit_card / ewallet"
         VARCHAR status "paid / refunded"
         TIMESTAMPTZ paid_at "NOT NULL"
     }
-
-metro_monthly_passes ||--o{ metro_monthly_pass_payments : "has_payment"
-
 
     national_rail_feedback {
         UUID feedback_id PK
@@ -300,11 +297,12 @@ metro_monthly_passes ||--o{ metro_monthly_pass_payments : "has_payment"
     metro_stations ||--o{ metro_trips : "origin_of"
     metro_stations ||--o{ metro_trips : "dest_of"
     metro_trips ||--o{ metro_trips : "day_pass_ref"
+    metro_monthly_passes ||--o{ metro_trips : "used_by"
 
     %% Payments
     national_rail_bookings ||--o{ national_rail_payments : "has_payment"
     metro_trips ||--o{ metro_payments : "has_payment"
-    metro_monthly_passes ||--o{ metro_trips : "used_by"
+    metro_monthly_passes ||--o{ metro_monthly_pass_payments : "has_payment"
 
     %% Feedback
     national_rail_bookings ||--o{ national_rail_feedback : "has_feedback"

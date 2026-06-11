@@ -97,6 +97,19 @@ CREATE TABLE metro_stations (
     adjacent_stations                    JSONB NOT NULL DEFAULT '[]'::jsonb
 );
 
+
+ALTER TABLE national_rail_stations
+ADD CONSTRAINT fk_national_rail_interchange_metro_station_code
+FOREIGN KEY (interchange_metro_station_code)
+REFERENCES metro_stations(station_code)
+ON DELETE SET NULL;
+
+ALTER TABLE metro_stations
+ADD CONSTRAINT fk_metro_interchange_national_rail_station_code
+FOREIGN KEY (interchange_national_rail_station_code)
+REFERENCES national_rail_stations(station_code)
+ON DELETE SET NULL;
+
 -- ============================================================
 -- 2. Schedule tables and normalized stop junction tables
 -- ============================================================
@@ -121,10 +134,9 @@ CREATE TABLE national_rail_schedules (
 
 CREATE TABLE metro_schedules (
     -- PK uses SERIAL because schedules are imported service definitions; schedule_code
-    -- preserves the JSON ID, e.g. M_SCH01, for deterministic seeding and queries.
     schedule_id             SERIAL PRIMARY KEY,
     schedule_code           VARCHAR(30) NOT NULL UNIQUE,
-
+    -- preserves the JSON ID, e.g. M_SCH01, for deterministic seeding and queries.
     line                    VARCHAR(20) NOT NULL,
     direction               VARCHAR(20) NOT NULL CHECK (direction IN ('northbound', 'southbound', 'eastbound', 'westbound')),
     origin_station_id       INTEGER NOT NULL REFERENCES metro_stations(station_id) ON DELETE RESTRICT,
@@ -337,6 +349,13 @@ CREATE TABLE metro_feedback (
 CREATE INDEX IF NOT EXISTS idx_registered_users_user_code ON registered_users(user_code);
 CREATE INDEX IF NOT EXISTS idx_national_rail_stations_code ON national_rail_stations(station_code);
 CREATE INDEX IF NOT EXISTS idx_metro_stations_code ON metro_stations(station_code);
+
+CREATE INDEX IF NOT EXISTS idx_national_rail_interchange_metro_code
+ON national_rail_stations(interchange_metro_station_code);
+
+CREATE INDEX IF NOT EXISTS idx_metro_interchange_national_rail_code
+ON metro_stations(interchange_national_rail_station_code);
+
 CREATE INDEX IF NOT EXISTS idx_national_rail_schedules_code ON national_rail_schedules(schedule_code);
 CREATE INDEX IF NOT EXISTS idx_metro_schedules_code ON metro_schedules(schedule_code);
 
@@ -455,4 +474,5 @@ CREATE TABLE IF NOT EXISTS policy_documents (
 );
 
 -- Index for fast cosine similarity search
-CREATE INDEX IF NOT EXISTS ON policy_documents USING hnsw (embedding vector_cosine_ops);
+CREATE INDEX IF NOT EXISTS idx_policy_documents_embedding_hnsw
+ON policy_documents USING hnsw (embedding vector_cosine_ops);

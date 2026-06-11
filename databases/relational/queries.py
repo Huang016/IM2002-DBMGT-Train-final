@@ -1016,19 +1016,51 @@ def query_low_rating_feedback(max_rating: int = 3) -> dict:
 
 
 def query_interchange_stations() -> list[dict]:
-    """Return metro-national rail interchange mapping using station_code fields."""
+    """Return metro-national rail interchange mappings from both FK directions.
+
+    The schema stores cross-network interchange as optional station_code FKs on
+    both station tables:
+      - metro_stations.interchange_national_rail_station_code
+      - national_rail_stations.interchange_metro_station_code
+
+    This query reads both directions and de-duplicates pairs, so it still works
+    if one side of the source JSON is populated more completely than the other.
+    """
     sql = """
+        WITH interchange_pairs AS (
+            SELECT
+                ms.station_id AS metro_station_pk,
+                nrs.station_id AS national_rail_station_pk
+            FROM metro_stations ms
+            JOIN national_rail_stations nrs
+              ON ms.interchange_national_rail_station_code = nrs.station_code
+
+            UNION
+
+            SELECT
+                ms.station_id AS metro_station_pk,
+                nrs.station_id AS national_rail_station_pk
+            FROM national_rail_stations nrs
+            JOIN metro_stations ms
+              ON nrs.interchange_metro_station_code = ms.station_code
+        )
         SELECT
             ms.station_id AS metro_station_pk,
             ms.station_code AS metro_station_id,
             ms.name AS metro_station_name,
             nrs.station_id AS national_rail_station_pk,
             nrs.station_code AS national_rail_station_id,
-            nrs.name AS national_rail_station_name
-        FROM metro_stations ms
+            nrs.name AS national_rail_station_name,
+            (ms.interchange_national_rail_station_code = nrs.station_code)
+                AS metro_fk_matches,
+            (nrs.interchange_metro_station_code = ms.station_code)
+                AS rail_fk_matches
+        FROM interchange_pairs ip
+        JOIN metro_stations ms
+          ON ms.station_id = ip.metro_station_pk
         JOIN national_rail_stations nrs
-          ON ms.interchange_national_rail_station_code = nrs.station_code
-        ORDER BY ms.station_code;
+          ON nrs.station_id = ip.national_rail_station_pk
+        ORDER BY ms.station_code, nrs.station_code;
     """
     with _connect() as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
@@ -1167,6 +1199,8 @@ def execute_buy_monthly_pass(user_id: str, start_date: str) -> tuple[bool, dict 
         return False, str(e)
     finally:
         conn.close()
+
+
 def execute_booking(
     user_id: str,
     schedule_id: str,
