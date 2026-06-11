@@ -7,6 +7,15 @@ Then open: http://localhost:7860
 Students: You do NOT need to change this file.
 """
 
+"""
+TransitFlow — Gradio Web Interface
+====================================
+Run with:  python skeleton/ui.py
+Then open: http://localhost:7860
+
+Students: You do NOT need to change this file. (But we upgraded it!)
+"""
+
 import sys
 sys.path.insert(0, ".")
 
@@ -20,6 +29,7 @@ from databases.relational.queries import (
     get_user_secret_question,
     verify_secret_answer,
     update_password,
+    query_user_bookings,  # ✨ 新增：匯入歷史紀錄查詢函式
 )
 
 SECRET_QUESTIONS = [
@@ -99,7 +109,7 @@ def on_chat_model_change(value: str):
     return f"**Active:** {value}\n\n{status}", get_ollama_status()
 
 
-# ── Auth handlers ──────────────────────────────────────────────────────────────
+# ── Auth & History handlers ───────────────────────────────────────────────────
 
 def do_login(email: str, password: str):
     """Handle login form submission."""
@@ -109,6 +119,7 @@ def do_login(email: str, password: str):
             None,
             gr.update(), gr.update(), gr.update(), gr.update(),
             gr.update(visible=True),
+            gr.update(), gr.update()
         )
 
     user = login_user(email.strip(), password)
@@ -118,6 +129,7 @@ def do_login(email: str, password: str):
             None,
             gr.update(), gr.update(), gr.update(), gr.update(),
             gr.update(visible=True),
+            gr.update(), gr.update()
         )
 
     display_name = f"{user['first_name']} {user['surname']}"
@@ -129,6 +141,8 @@ def do_login(email: str, password: str):
         gr.update(value=f"**Welcome, {display_name}**", visible=True),
         gr.update(visible=True),
         gr.update(visible=False),
+        gr.update(visible=True),  # ✨ 登入成功：顯示歷史紀錄按鈕
+        gr.update(visible=False)  # 面板預設隱藏
     )
 
 
@@ -142,6 +156,8 @@ def do_logout():
         gr.update(visible=False),
         gr.update(visible=False),
         gr.update(visible=False),
+        gr.update(visible=False), # ✨ 登出時：隱藏歷史紀錄按鈕
+        gr.update(visible=False)  # ✨ 登出時：隱藏歷史紀錄面板
     )
 
 
@@ -156,6 +172,7 @@ def do_register(email, first_name, surname, year_of_birth, password, secret_ques
             None,
             gr.update(), gr.update(), gr.update(), gr.update(),
             gr.update(visible=True),
+            gr.update(), gr.update()
         )
 
     try:
@@ -168,6 +185,7 @@ def do_register(email, first_name, surname, year_of_birth, password, secret_ques
             None,
             gr.update(), gr.update(), gr.update(), gr.update(),
             gr.update(visible=True),
+            gr.update(), gr.update()
         )
 
     ok, err = register_user(
@@ -180,6 +198,7 @@ def do_register(email, first_name, surname, year_of_birth, password, secret_ques
             None,
             gr.update(), gr.update(), gr.update(), gr.update(),
             gr.update(visible=True),
+            gr.update(), gr.update()
         )
 
     display_name = f"{first_name.strip()} {surname.strip()}"
@@ -191,7 +210,112 @@ def do_register(email, first_name, surname, year_of_birth, password, secret_ques
         gr.update(value=f"**Welcome, {display_name}**", visible=True),
         gr.update(visible=True),
         gr.update(visible=False),
+        gr.update(visible=True),  # ✨ 註冊成功並登入：顯示歷史紀錄按鈕
+        gr.update(visible=False)
     )
+
+def fetch_trip_history(email: str):
+    """✨ 升級版：拉取歷史紀錄，並轉換為現代化卡片 HTML 介面"""
+    if not email:
+        return gr.update(visible=False), ""
+    
+    # 1. 呼叫 SQL 查詢拉取原始資料
+    history_data = query_user_bookings(email)
+    
+    # 2. 將國鐵與捷運的資料合併，並依照日期排序 (新到舊)
+    all_trips = []
+    for trip in history_data.get("national_rail", []):
+        all_trips.append(trip)
+    for trip in history_data.get("metro", []):
+        all_trips.append(trip)
+        
+    if not all_trips:
+        return gr.update(visible=True), "<p style='color: gray; padding: 20px;'>No trip history found.</p>"
+
+    # 依照日期排序 (最新的在最上面)
+    all_trips.sort(key=lambda x: str(x.get('travel_date', '')), reverse=True)
+
+    # 3. 撰寫前端 CSS 樣式
+    html = """
+    <style>
+    .ticket-card { border: 1px solid #e2e8f0; border-radius: 10px; margin-bottom: 12px; padding: 14px; background-color: #ffffff; box-shadow: 0 2px 4px rgba(0,0,0,0.03); transition: all 0.2s ease; }
+    .ticket-card:hover { box-shadow: 0 6px 12px rgba(0,0,0,0.08); border-color: #cbd5e1; }
+    .ticket-summary { cursor: pointer; display: flex; justify-content: space-between; align-items: center; font-size: 1.05em; font-weight: 600; outline: none; list-style: none; }
+    .ticket-summary::-webkit-details-marker { display: none; }
+    .ticket-summary:hover { opacity: 0.8; }
+    .ticket-details { margin-top: 14px; padding-top: 14px; border-top: 1px dashed #cbd5e1; font-size: 0.9em; color: #475569; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; line-height: 1.6; }
+    .badge { padding: 4px 10px; border-radius: 6px; font-size: 0.75em; font-weight: bold; color: white; text-transform: uppercase; letter-spacing: 0.5px; }
+    .badge-rail { background-color: #1e40af; } /* 深藍色代表國鐵 */
+    .badge-metro { background-color: #047857; } /* 翡翠綠代表捷運 */
+    .status-completed { color: #16a34a; font-weight: bold; }
+    .status-cancelled { color: #dc2626; font-weight: bold; }
+    .price-tag { font-weight: bold; color: #0f172a; font-size: 1.1em; }
+    </style>
+    <div>
+    """
+
+    # 4. 動態生成每一張票的 HTML 結構
+    for trip in all_trips:
+        t_type = trip.get("travel_type")
+        is_rail = t_type == "national_rail"
+
+        badge_class = "badge-rail" if is_rail else "badge-metro"
+        badge_text = "National Rail" if is_rail else "City Metro"
+        date_str = trip.get("travel_date", "N/A")
+        origin = trip.get("origin_station", "Unknown")
+        dest = trip.get("destination_station", "Unknown")
+        price = f"${trip.get('amount_usd', 0):.2f}"
+        status = trip.get("status", "").lower()
+        status_class = f"status-{status}" if status in ["completed", "cancelled"] else ""
+
+        t_id = trip.get("booking_id") if is_rail else trip.get("trip_id")
+
+        # 外層大綱 (不點開也能看到的資訊)
+        summary_html = f"""
+        <summary class="ticket-summary">
+            <div style="display: flex; align-items: center; gap: 12px;">
+                <span class="badge {badge_class}">{badge_text}</span>
+                <span>{date_str} <span style="color:#94a3b8; font-weight:normal;">|</span> <strong>{origin}</strong> ➔ <strong>{dest}</strong></span>
+            </div>
+            <div class="price-tag">{price}</div>
+        </summary>
+        """
+
+        # 內層詳細資訊 (點擊後展開)
+        details_left = f"""
+        <div>
+            <p><strong>Booking Ref:</strong> {t_id}</p>
+            <p><strong>Status:</strong> <span class="{status_class}">{status.capitalize()}</span></p>
+            <p><strong>Ticket Type:</strong> {trip.get('ticket_type', 'N/A').replace('_', ' ').title()}</p>
+        </div>
+        """
+
+        if is_rail:
+            details_right = f"""
+            <div>
+                <p><strong>Departure:</strong> {trip.get('departure_time', 'N/A')}</p>
+                <p><strong>Service:</strong> Line {trip.get('line', '')} ({trip.get('service_type', 'normal').title()})</p>
+                <p><strong>Seat:</strong> Coach {trip.get('coach', 'N/A')}, Seat {trip.get('seat_id', 'N/A')} ({trip.get('fare_class', '').title()})</p>
+            </div>
+            """
+        else:
+            pass_info = f"<p><strong>Monthly Pass:</strong> {trip.get('monthly_pass_ref')}</p>" if trip.get('monthly_pass_ref') else ""
+            details_right = f"""
+            <div>
+                <p><strong>Line:</strong> {trip.get('line', 'N/A')}</p>
+                <p><strong>Stops Travelled:</strong> {trip.get('stops_travelled', 'N/A')}</p>
+                {pass_info}
+            </div>
+            """
+
+        details_html = f"<div class='ticket-details'>{details_left}{details_right}</div>"
+
+        # 使用 HTML 的 <details> 標籤達成手風琴展開效果
+        html += f"<div class='ticket-card'><details>{summary_html}{details_html}</details></div>"
+
+    html += "</div>"
+    
+    return gr.update(visible=True), html
 
 
 def forgot_find_question(email: str):
@@ -279,12 +403,17 @@ with gr.Blocks(title="TransitFlow") as demo:
 # 🚂 TransitFlow Intelligent Rail Assistant
 *Powered by PostgreSQL · pgvector · Neo4j · LLM*
         """)
-        with gr.Column(scale=0, min_width=240):
+        with gr.Column(scale=0, min_width=320): # ✨ 稍微加寬，容納新按鈕
             with gr.Row():
                 login_btn    = gr.Button("👤 Login",    size="sm", variant="secondary")
                 register_btn = gr.Button("📝 Register", size="sm", variant="secondary")
+            
             user_info_display = gr.Markdown("", visible=False)
-            logout_btn = gr.Button("Logout", size="sm", variant="stop", visible=False)
+            
+            with gr.Row():
+                # ✨ 新增：歷史紀錄與登出按鈕並排
+                view_history_btn = gr.Button("📜 Trip History", size="sm", visible=False)
+                logout_btn = gr.Button("Logout", size="sm", variant="stop", visible=False)
 
     # ── Login panel (hidden by default) ──────────────────────────────
     with gr.Column(visible=False) as login_panel:
@@ -324,6 +453,14 @@ with gr.Blocks(title="TransitFlow") as demo:
         forgot_reset_btn         = gr.Button("Reset password", variant="primary", visible=False)
         forgot_msg               = gr.Markdown("")
         forgot_back_btn          = gr.Button("Back to login", size="sm")
+
+    # ✨ 新增：歷史紀錄面板 (預設隱藏) ──────────────────────────────────
+    # ✨ 修改：歷史紀錄面板 (預設隱藏) ──────────────────────────────────
+    with gr.Column(visible=False) as history_panel:
+        gr.Markdown("### 📜 Your Trip History")
+        history_html = gr.HTML()  # <--- 把 history_json 換成 history_html
+        close_history_btn = gr.Button("Close History", size="sm")
+        gr.Markdown("---")
 
     # ── Main chat area ────────────────────────────────────────────────
     with gr.Row():
@@ -423,6 +560,18 @@ with gr.Blocks(title="TransitFlow") as demo:
         outputs=[login_panel, register_panel, forgot_panel],
     )
 
+    # ✨ 新增：歷史紀錄面板的開關事件
+    # ✨ 修改：歷史紀錄面板的開關事件
+    view_history_btn.click(
+        fn=fetch_trip_history,
+        inputs=[current_user_state],
+        outputs=[history_panel, history_html]  # <--- 從 history_json 變成 history_html
+    )
+    close_history_btn.click(
+        fn=lambda: gr.update(visible=False),
+        outputs=[history_panel]
+    )
+
     # Login
     login_submit_btn.click(
         fn=do_login,
@@ -435,6 +584,8 @@ with gr.Blocks(title="TransitFlow") as demo:
             user_info_display,
             logout_btn,
             login_panel,
+            view_history_btn, # ✨ 新增綁定
+            history_panel     # ✨ 新增綁定
         ],
     )
 
@@ -450,6 +601,8 @@ with gr.Blocks(title="TransitFlow") as demo:
             login_panel,
             register_panel,
             forgot_panel,
+            view_history_btn, # ✨ 新增綁定
+            history_panel     # ✨ 新增綁定
         ],
     )
 
@@ -468,6 +621,8 @@ with gr.Blocks(title="TransitFlow") as demo:
             user_info_display,
             logout_btn,
             register_panel,
+            view_history_btn, # ✨ 新增綁定
+            history_panel     # ✨ 新增綁定
         ],
     )
 
